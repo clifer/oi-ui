@@ -1,6 +1,6 @@
 {
   "name": "oi-ui",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "A reference app for comparing baseline and Open Inquiry Constitution-guided model responses across GPT, Grok, and Gemini.",
@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@google/genai": "latest",
+    "dotenv": "latest",
     "openai": "latest"
   },
   "engines": {
