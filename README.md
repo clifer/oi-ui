@@ -23,6 +23,7 @@ The comparison does **not** assume the Constitution-guided response is better an
 The UI is intentionally designed to make the experiment inspectable and portable:
 
 - Current Constitution version and SHA-256 hash
+- Selectable provider and model for each run, with environment-configurable model lists
 - Exact provider, model, reasoning level, search state, timestamp, response IDs, and token usage when supplied by the provider
 - Exact baseline, Constitution-guided, and comparison instructions
 - Rendered Markdown / raw Markdown toggle for every output
@@ -55,16 +56,19 @@ XAI_API_KEY=...
 GEMINI_API_KEY=...
 ```
 
-You can configure the model and reasoning level for each provider:
+You can configure the default model, selectable model list, and reasoning level for each provider:
 
 ```bash
 OPENAI_MODEL=gpt-5.6-terra
+OPENAI_MODELS=gpt-6-astra,gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna
 OPENAI_REASONING_EFFORT=medium
 
 XAI_MODEL=grok-4.6
+XAI_MODELS=grok-4.6,grok-4.5,grok-4.3
 XAI_REASONING_EFFORT=medium
 
 GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MODELS=gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.1-pro-preview,gemini-2.5-pro,gemini-2.5-flash
 GEMINI_THINKING_LEVEL=medium
 ```
 
