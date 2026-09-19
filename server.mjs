@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { promises as fs } from "node:fs";
 import { extname, join } from "node:path";
@@ -40,6 +41,16 @@ const constitutionUrl =
   process.env.CONSTITUTION_URL ||
   "https://raw.githubusercontent.com/clifer/open-inquiry-constitution/main/CONSTITUTION.md";
 
+const FORMAT_INSTRUCTIONS = `Write the answer as clean GitHub-Flavored Markdown.
+Use short descriptive headings when they improve navigation.
+Use **bold** selectively for important terms, distinctions, and conclusions.
+Use bullets or numbered lists for genuinely list-like material.
+Use Markdown tables only when a table is clearer than prose.
+Use blockquotes only for actual quotations or clearly marked claims.
+Use fenced code blocks for code.
+Do not wrap the entire response in a code fence.
+Prefer readable paragraphs over a wall of text.`;
+
 const openai = providerConfig.openai.apiKey
   ? new OpenAI({ apiKey: providerConfig.openai.apiKey })
   : null;
@@ -75,6 +86,13 @@ function publicProviders() {
   }));
 }
 
+function constitutionMetadata(text) {
+  const version =
+    text.match(/^#\s+Open Inquiry Constitution\s+(.+)$/m)?.[1]?.trim() || "unknown";
+  const sha256 = createHash("sha256").update(text, "utf8").digest("hex");
+  return { version, sha256 };
+}
+
 async function getConstitution() {
   if (cachedConstitution && Date.now() - cachedConstitution.cachedAt < 300000) {
     return cachedConstitution;
@@ -82,16 +100,20 @@ async function getConstitution() {
   try {
     const response = await fetch(constitutionUrl);
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    const text = await response.text();
     cachedConstitution = {
-      text: await response.text(),
+      text,
+      ...constitutionMetadata(text),
       source: constitutionUrl,
       sourceState: "live",
       fetchedAt: new Date().toISOString(),
       cachedAt: Date.now()
     };
   } catch {
+    const text = await fs.readFile(join(root, "constitution.snapshot.md"), "utf8");
     cachedConstitution = {
-      text: await fs.readFile(join(root, "constitution.snapshot.md"), "utf8"),
+      text,
+      ...constitutionMetadata(text),
       source: constitutionUrl,
       sourceState: "snapshot",
       fetchedAt: null,
@@ -155,25 +177,35 @@ async function ask(provider, input, instructions, allowWeb = false, maxOutputTok
   return askGemini(config, input, instructions, allowWeb);
 }
 
+function baselinePrompt() {
+  return FORMAT_INSTRUCTIONS;
+}
+
 function constitutionPrompt(text) {
-  return `Use the Open Inquiry Constitution below as a method of inquiry when answering the user's question. Apply it proportionately rather than mechanically. Do not force disagreement, symmetry, or a predetermined conclusion. Distinguish evidence, authority, inference, uncertainty, and scope when relevant. Trace sources when you use them. Include a concise "What could change" section when useful. The Constitution is itself challengeable.
+  return `${FORMAT_INSTRUCTIONS}
+
+Use the Open Inquiry Constitution below as a method of inquiry when answering the user's question. Apply it proportionately rather than mechanically. Do not force disagreement, symmetry, or a predetermined conclusion. Distinguish evidence, authority, inference, uncertainty, and scope when relevant. Trace sources when you use them. Include a concise **What could change** section when useful. The Constitution is itself challengeable.
 
 ${text}`;
 }
 
 function analysisPrompt(text) {
-  return `Compare two answers from the same model to the same question. Response A is baseline. Response B used the Open Inquiry Constitution as inquiry-method instructions.
+  return `${FORMAT_INSTRUCTIONS}
+
+Compare two answers from the same model to the same question. Response A is baseline. Response B used the Open Inquiry Constitution as inquiry-method instructions.
 
 Do not assume Response B is better. Do not treat one stochastic A/B pair as proof that the Constitution caused every difference.
 
-Explain:
-1. Material changes in claims, scope, evidence, uncertainty, counterarguments, sourcing, or structure.
-2. Constitution-linked differences, naming article numbers only when supported.
-3. Tradeoffs or regressions in either answer.
-4. What stayed substantially the same.
-5. What could change this comparison.
+Use these exact Markdown section headings:
+## Material changes
+## Constitution links
+## Tradeoffs
+## What stayed the same
+## What could change this comparison
 
-Do not assign a winner or numeric score.
+Under **Constitution links**, name an article only when the connection is supported. Refer to it using the exact phrase "Article N" (for example, "Article 6") so the reference app can link it to the Constitution.
+
+Describe differences rather than assigning a winner, score, or grade.
 
 Constitution:
 ${text}`;
@@ -208,7 +240,10 @@ createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/config") {
-      return json(res, 200, { providers: publicProviders() });
+      return json(res, 200, {
+        providers: publicProviders(),
+        formattingInstructions: FORMAT_INSTRUCTIONS
+      });
     }
 
     if (req.method === "GET" && url.pathname === "/api/constitution") {
@@ -231,10 +266,13 @@ createServer(async (req, res) => {
 
       const constitution = await getConstitution();
       const allowWeb = Boolean(body.allowWeb);
+      const baselineInstructions = baselinePrompt();
+      const guidedInstructions = constitutionPrompt(constitution.text);
+      const comparisonInstructions = analysisPrompt(constitution.text);
 
       const [baseline, guided] = await Promise.all([
-        ask(provider, question, null, allowWeb),
-        ask(provider, question, constitutionPrompt(constitution.text), allowWeb)
+        ask(provider, question, baselineInstructions, allowWeb),
+        ask(provider, question, guidedInstructions, allowWeb)
       ]);
 
       const comparisonInput = `USER QUESTION
@@ -249,7 +287,7 @@ ${guided.text}`;
       const analysis = await ask(
         provider,
         comparisonInput,
-        analysisPrompt(constitution.text),
+        comparisonInstructions,
         false,
         1800
       );
@@ -257,6 +295,7 @@ ${guided.text}`;
       const selected = providerConfig[provider];
       return json(res, 200, {
         question,
+        runAt: new Date().toISOString(),
         provider,
         providerLabel: selected.label,
         model: selected.model,
@@ -265,7 +304,15 @@ ${guided.text}`;
         constitution: {
           source: constitution.source,
           sourceState: constitution.sourceState,
-          fetchedAt: constitution.fetchedAt
+          fetchedAt: constitution.fetchedAt,
+          version: constitution.version,
+          sha256: constitution.sha256
+        },
+        method: {
+          baselineInstructions,
+          guidedInstructions,
+          comparisonInstructions,
+          comparisonInput
         },
         baseline,
         guided,
