@@ -2,6 +2,8 @@
 
 A deliberately small reference app for testing what changes when the **Open Inquiry Constitution** is added to a model's inquiry method.
 
+> Open Inquiry UI is an independent open-source reference project. It is not endorsed by or affiliated with OpenAI, xAI, or Google. GPT, Grok, Gemini, and related names and marks belong to their respective owners.
+
 The app supports three model providers:
 
 - **GPT** through the OpenAI Responses API
@@ -34,6 +36,14 @@ The UI is intentionally designed to make the experiment inspectable and portable
 - Opt-in browser-local experiment history using IndexedDB
 - Reopen/delete individual saved runs, clear all local history, and export/import history as JSON
 - Live canonical Constitution source with an explicitly labeled bundled fallback
+
+## Privacy and cost
+
+Provider API keys stay on the server. The reference server does not persist questions or responses. Browser history is opt-in and stored only in that browser via IndexedDB.
+
+A single completed experiment normally makes **three paid model calls**: baseline, Constitution-guided, and comparison. Web search may add provider-specific cost. If you host this app publicly, configure the included demo limits and your provider billing limits before sharing the URL.
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the public-deployment checklist.
 
 ## Run locally
 
@@ -74,6 +84,8 @@ GEMINI_THINKING_LEVEL=medium
 
 Keys stay server-side. The browser only receives whether each provider is configured, plus public model/reasoning settings.
 
+For a public demo, the server also supports an optional access code, hourly per-client run limits, server-wide and provider-specific daily run limits, a trusted-proxy switch, and a web-search kill switch. See [.env.example](.env.example) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 ## Browser-local history
 
 History is **off by default**. If the user enables **Save runs in this browser**, completed experiments are stored in IndexedDB on that browser/device only.
@@ -107,6 +119,20 @@ The optional **Allow web search on both answer passes** control is provider-awar
 - Gemini: provider search grounding
 
 Search is enabled symmetrically for the baseline and Constitution-guided answer passes. The comparison pass does not search the web; it compares the two resulting answers.
+
+## Open source and attribution
+
+This project is licensed under the [MIT License](LICENSE). The bundled Constitution fallback snapshot comes from [clifer/open-inquiry-constitution](https://github.com/clifer/open-inquiry-constitution), which is also MIT-licensed. See [NOTICE.md](NOTICE.md).
+
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md).
+
+## Known limitations
+
+- A single A/B run cannot establish that the Constitution caused every observed difference.
+- Model output is stochastic; reruns can differ.
+- Provider APIs, model IDs, search behavior, pricing, and retention policies change over time.
+- Built-in public-demo counters are in-memory safeguards, not production-grade distributed rate limiting.
+- Browser-local history is tied to a browser profile unless exported.
 
 ## Design intent
 
