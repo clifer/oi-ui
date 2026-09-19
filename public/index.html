@@ -30,7 +30,7 @@
     .examples{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 18px}.example{border:1px solid var(--line);background:transparent;color:var(--muted);padding:7px 9px;font-size:12px;font-weight:600}.example:hover{border-color:var(--accent);color:var(--accent)}
     .controls{padding-top:18px;border-top:1px solid var(--line);display:grid;grid-template-columns:minmax(190px,1fr) minmax(240px,1.2fr) auto auto auto;gap:18px;align-items:end}
     .provider-wrap label{display:block;font-size:11px;font-weight:800;letter-spacing:.08em;margin-bottom:7px}
-    select{width:100%;border:1px solid var(--line);background:var(--panel);padding:11px 12px;font:14px inherit;color:var(--ink)}
+    select,input[type="password"]{width:100%;border:1px solid var(--line);background:var(--panel);padding:11px 12px;font:14px inherit;color:var(--ink)}
     .provider-note{margin:7px 0 0;font-size:11px;color:var(--muted)}
     .toggle{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;padding-bottom:11px}.toggle input{accent-color:var(--accent)}
     button{border:1px solid var(--accent);background:var(--accent);color:white;padding:12px 18px;font-weight:750;cursor:pointer}
@@ -117,6 +117,11 @@
         </div>
         <label class="toggle"><input id="web" type="checkbox"> Allow web search on both answer passes</label>
         <label class="toggle"><input id="save-history" type="checkbox"> Save runs in this browser</label>
+        <div id="access-wrap" class="provider-wrap hidden">
+          <label for="access-token">DEMO ACCESS CODE</label>
+          <input id="access-token" type="password" autocomplete="off" placeholder="Required by this deployment">
+          <p class="provider-note">Held only in this tab and never written to history.</p>
+        </div>
         <button id="run" type="submit" disabled>Run inquiry</button>
       </div>
       <p id="error" class="error hidden" role="alert"></p>
@@ -199,6 +204,7 @@ marked.setOptions({gfm:true,breaks:false});
 
 const $ = s => document.querySelector(s);
 const form=$("#form"), q=$("#question"), provider=$("#provider"), providerNote=$("#provider-note"), model=$("#model"), modelNote=$("#model-note"), web=$("#web"), run=$("#run"), error=$("#error"), results=$("#results");
+const accessWrap=$("#access-wrap"), accessToken=$("#access-token");
 const baseline=$("#baseline"), guided=$("#guided"), analysis=$("#analysis"), runmeta=$("#runmeta");
 const constitution=$("#constitution"), cmeta=$("#cmeta"), metaGrid=$("#meta-grid");
 const promptBaseline=$("#prompt-baseline"), promptGuided=$("#prompt-guided"), promptAnalysis=$("#prompt-analysis");
@@ -436,6 +442,10 @@ async function loadProviders(){
     const r=await fetch("/api/config",{cache:"no-store"}),data=await r.json();
     if(!r.ok)throw new Error(data.error||"Unable to load provider configuration.");
     providers=data.providers||[];provider.innerHTML="";
+    accessWrap.classList.toggle("hidden",!data.demo?.accessTokenRequired);
+    web.disabled=data.demo?.webSearchAllowed===false;
+    if(web.disabled){web.checked=false;web.closest(".toggle").title="Web search is disabled by this deployment.";}
+
     for(const p of providers){
       const option=document.createElement("option");
       option.value=p.id;option.textContent=p.label+(p.configured?"":" (not configured)");option.disabled=!p.configured;provider.append(option);
@@ -597,7 +607,9 @@ async function runInquiry(){
   baseline.className="response loading";guided.className="response loading";analysis.className="response loading";
   results.scrollIntoView({behavior:"smooth",block:"start"});
   try{
-    const r=await fetch("/api/inquire",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question,provider:p.id,model:m,allowWeb:web.checked})});
+    const headers={"content-type":"application/json"};
+    if(!accessWrap.classList.contains("hidden") && accessToken.value)headers["x-oi-access-token"]=accessToken.value;
+    const r=await fetch("/api/inquire",{method:"POST",headers,body:JSON.stringify({question,provider:p.id,model:m,allowWeb:web.checked})});
     const data=await r.json();if(!r.ok)throw new Error(data.error||"Inquiry failed.");
     currentRun=data;rawText.baseline=data.baseline.text;rawText.guided=data.guided.text;rawText.analysis=data.analysis.text;
     showMode("baseline","rendered");showMode("guided","rendered");showMode("analysis","rendered");
