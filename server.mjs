@@ -16,26 +16,38 @@ const vendorFiles = {
   "/vendor/purify.js": join(root, "node_modules", "dompurify", "dist", "purify.min.js")
 };
 
+function modelList(value, fallback) {
+  const items = (value || fallback).split(",").map(x => x.trim()).filter(Boolean);
+  return [...new Set(items)];
+}
+
 const providerConfig = {
   openai: {
     label: "GPT",
     model: process.env.OPENAI_MODEL || "gpt-5.6-terra",
+    models: modelList(process.env.OPENAI_MODELS, "gpt-6-astra,gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna"),
     reasoning: process.env.OPENAI_REASONING_EFFORT || "medium",
     apiKey: process.env.OPENAI_API_KEY
   },
   xai: {
     label: "Grok",
     model: process.env.XAI_MODEL || "grok-4.6",
+    models: modelList(process.env.XAI_MODELS, "grok-4.6,grok-4.5,grok-4.3"),
     reasoning: process.env.XAI_REASONING_EFFORT || "medium",
     apiKey: process.env.XAI_API_KEY
   },
   gemini: {
     label: "Gemini",
     model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
+    models: modelList(process.env.GEMINI_MODELS, "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.1-pro-preview,gemini-2.5-pro,gemini-2.5-flash"),
     reasoning: process.env.GEMINI_THINKING_LEVEL || "medium",
     apiKey: process.env.GEMINI_API_KEY
   }
 };
+
+for (const config of Object.values(providerConfig)) {
+  if (!config.models.includes(config.model)) config.models.unshift(config.model);
+}
 
 const constitutionUrl =
   process.env.CONSTITUTION_URL ||
@@ -81,6 +93,7 @@ function publicProviders() {
     id,
     label: config.label,
     model: config.model,
+    models: config.models,
     reasoning: config.reasoning,
     configured: Boolean(config.apiKey)
   }));
@@ -161,8 +174,9 @@ async function askGemini(config, input, instructions, allowWeb) {
   };
 }
 
-async function ask(provider, input, instructions, allowWeb = false, maxOutputTokens = 2200) {
-  const config = providerConfig[provider];
+async function ask(provider, model, input, instructions, allowWeb = false, maxOutputTokens = 2200) {
+  const baseConfig = providerConfig[provider];
+  const config = baseConfig ? { ...baseConfig, model } : null;
   if (!config) throw new Error("Unknown provider.");
   if (!config.apiKey) {
     throw new Error(`${config.label} is not configured. Add its API key to the server environment.`);
@@ -254,13 +268,20 @@ createServer(async (req, res) => {
       const body = await readBody(req);
       const question = typeof body.question === "string" ? body.question.trim() : "";
       const provider = typeof body.provider === "string" ? body.provider : "openai";
+      const selectedProvider = providerConfig[provider];
+      const model = typeof body.model === "string" && body.model.trim()
+        ? body.model.trim()
+        : selectedProvider?.model;
 
       if (!question) return json(res, 400, { error: "Enter a question." });
       if (question.length > 6000) return json(res, 400, { error: "Question is too long." });
-      if (!providerConfig[provider]) return json(res, 400, { error: "Unknown provider." });
-      if (!providerConfig[provider].apiKey) {
+      if (!selectedProvider) return json(res, 400, { error: "Unknown provider." });
+      if (!selectedProvider.models.includes(model)) {
+        return json(res, 400, { error: "Model is not enabled for this provider." });
+      }
+      if (!selectedProvider.apiKey) {
         return json(res, 400, {
-          error: `${providerConfig[provider].label} is not configured on this server.`
+          error: `${selectedProvider.label} is not configured on this server.`
         });
       }
 
@@ -271,8 +292,8 @@ createServer(async (req, res) => {
       const comparisonInstructions = analysisPrompt(constitution.text);
 
       const [baseline, guided] = await Promise.all([
-        ask(provider, question, baselineInstructions, allowWeb),
-        ask(provider, question, guidedInstructions, allowWeb)
+        ask(provider, model, question, baselineInstructions, allowWeb),
+        ask(provider, model, question, guidedInstructions, allowWeb)
       ]);
 
       const comparisonInput = `USER QUESTION
@@ -286,19 +307,20 @@ ${guided.text}`;
 
       const analysis = await ask(
         provider,
+        model,
         comparisonInput,
         comparisonInstructions,
         false,
         1800
       );
 
-      const selected = providerConfig[provider];
+      const selected = selectedProvider;
       return json(res, 200, {
         question,
         runAt: new Date().toISOString(),
         provider,
         providerLabel: selected.label,
-        model: selected.model,
+        model,
         reasoning: selected.reasoning,
         webSearch: allowWeb,
         constitution: {
