@@ -30,6 +30,8 @@ The UI is intentionally designed to make the experiment inspectable and portable
 - Example questions covering different inquiry patterns
 - **Run again** for another stochastic sample
 - **Export Markdown** and **Copy Markdown** for portable experiment records
+- Opt-in browser-local experiment history using IndexedDB
+- Reopen/delete individual saved runs, clear all local history, and export/import history as JSON
 - Live canonical Constitution source with an explicitly labeled bundled fallback
 
 ## Run locally
@@ -67,6 +69,14 @@ GEMINI_THINKING_LEVEL=medium
 ```
 
 Keys stay server-side. The browser only receives whether each provider is configured, plus public model/reasoning settings.
+
+## Browser-local history
+
+History is **off by default**. If the user enables **Save runs in this browser**, completed experiments are stored in IndexedDB on that browser/device only.
+
+There is no server-side history service and API keys are never stored in history records.
+
+Saved runs can be reopened, deleted individually, cleared entirely, exported as JSON, or imported from a previous JSON history export. This is intended as the lightweight persistence layer for the reference app; a server database such as SQLite can be added later by downstream projects that need shared or durable deployment storage.
 
 ## Markdown output
 
