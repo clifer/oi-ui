@@ -11,6 +11,27 @@ const root = fileURLToPath(new URL(".", import.meta.url));
 const publicDir = join(root, "public");
 const port = Number(process.env.PORT || 3000);
 
+function positiveInt(name, fallback) {
+  const value = Number.parseInt(process.env[name] || "", 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+const demoConfig = {
+  accessToken: process.env.OI_ACCESS_TOKEN || "",
+  hourlyRunLimit: positiveInt("OI_HOURLY_RUN_LIMIT", 20),
+  dailyRunLimit: positiveInt("OI_DAILY_RUN_LIMIT", 200),
+  providerDailyRunLimit: {
+    openai: positiveInt("OI_OPENAI_DAILY_RUN_LIMIT", positiveInt("OI_DAILY_RUN_LIMIT", 200)),
+    xai: positiveInt("OI_XAI_DAILY_RUN_LIMIT", positiveInt("OI_DAILY_RUN_LIMIT", 200)),
+    gemini: positiveInt("OI_GEMINI_DAILY_RUN_LIMIT", positiveInt("OI_DAILY_RUN_LIMIT", 200))
+  },
+  allowWebSearch: !["0", "false", "no"].includes(String(process.env.OI_ALLOW_WEB_SEARCH || "true").toLowerCase()),
+  trustProxy: ["1", "true", "yes"].includes(String(process.env.OI_TRUST_PROXY || "0").toLowerCase())
+};
+
+const hourlyClients = new Map();
+let dailyUsage = { day: "", total: 0, providers: { openai: 0, xai: 0, gemini: 0 } };
+
 const vendorFiles = {
   "/vendor/marked.js": join(root, "node_modules", "marked", "lib", "marked.umd.js"),
   "/vendor/purify.js": join(root, "node_modules", "dompurify", "dist", "purify.min.js")
@@ -86,6 +107,53 @@ function json(res, status, data) {
     "cache-control": "no-store"
   });
   res.end(JSON.stringify(data));
+}
+
+function requestIp(req) {
+  if (demoConfig.trustProxy) {
+    const forwarded = req.headers["x-forwarded-for"];
+    if (typeof forwarded === "string" && forwarded.trim()) {
+      return forwarded.split(",")[0].trim();
+    }
+  }
+  return req.socket.remoteAddress || "unknown";
+}
+
+function authorizeInquiry(req) {
+  if (!demoConfig.accessToken) return true;
+  const supplied = req.headers["x-oi-access-token"];
+  return typeof supplied === "string" && supplied === demoConfig.accessToken;
+}
+
+function consumeRunBudget(req, provider) {
+  const now = Date.now();
+  const hourMs = 60 * 60 * 1000;
+  const ip = requestIp(req);
+  const prior = hourlyClients.get(ip);
+  const client = !prior || now - prior.startedAt >= hourMs
+    ? { startedAt: now, count: 0 }
+    : prior;
+
+  if (client.count >= demoConfig.hourlyRunLimit) {
+    return { ok: false, status: 429, error: "Hourly demo limit reached for this client. Try again later." };
+  }
+
+  const day = new Date(now).toISOString().slice(0, 10);
+  if (dailyUsage.day !== day) {
+    dailyUsage = { day, total: 0, providers: { openai: 0, xai: 0, gemini: 0 } };
+  }
+  if (dailyUsage.total >= demoConfig.dailyRunLimit) {
+    return { ok: false, status: 429, error: "Daily demo limit reached. Try again tomorrow." };
+  }
+  if ((dailyUsage.providers[provider] || 0) >= demoConfig.providerDailyRunLimit[provider]) {
+    return { ok: false, status: 429, error: "Daily limit reached for this provider. Try another provider or try again tomorrow." };
+  }
+
+  client.count += 1;
+  hourlyClients.set(ip, client);
+  dailyUsage.total += 1;
+  dailyUsage.providers[provider] = (dailyUsage.providers[provider] || 0) + 1;
+  return { ok: true };
 }
 
 function publicProviders() {
@@ -256,7 +324,11 @@ createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/config") {
       return json(res, 200, {
         providers: publicProviders(),
-        formattingInstructions: FORMAT_INSTRUCTIONS
+        formattingInstructions: FORMAT_INSTRUCTIONS,
+        demo: {
+          accessTokenRequired: Boolean(demoConfig.accessToken),
+          webSearchAllowed: demoConfig.allowWebSearch
+        }
       });
     }
 
@@ -265,6 +337,10 @@ createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/api/inquire") {
+      if (!authorizeInquiry(req)) {
+        return json(res, 401, { error: "A valid demo access code is required." });
+      }
+
       const body = await readBody(req);
       const question = typeof body.question === "string" ? body.question.trim() : "";
       const provider = typeof body.provider === "string" ? body.provider : "openai";
@@ -285,8 +361,11 @@ createServer(async (req, res) => {
         });
       }
 
+      const budget = consumeRunBudget(req, provider);
+      if (!budget.ok) return json(res, budget.status, { error: budget.error });
+
       const constitution = await getConstitution();
-      const allowWeb = Boolean(body.allowWeb);
+      const allowWeb = demoConfig.allowWebSearch && Boolean(body.allowWeb);
       const baselineInstructions = baselinePrompt();
       const guidedInstructions = constitutionPrompt(constitution.text);
       const comparisonInstructions = analysisPrompt(constitution.text);
@@ -366,6 +445,7 @@ ${guided.text}`;
   }
 }).listen(port, () => {
   console.log(`Open Inquiry UI running at http://localhost:${port}`);
+  console.log(`Demo limits: ${demoConfig.hourlyRunLimit}/client/hour · ${demoConfig.dailyRunLimit}/server/day · web search ${demoConfig.allowWebSearch ? "enabled" : "disabled"} · access code ${demoConfig.accessToken ? "required" : "off"}`);
   for (const provider of publicProviders()) {
     console.log(`${provider.label}: ${provider.model} · ${provider.configured ? "configured" : "missing key"}`);
   }
