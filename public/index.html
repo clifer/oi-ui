@@ -34,7 +34,19 @@
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card,.analysis{background:var(--panel);border:1px solid var(--line)}.guided{border-top:3px solid var(--accent)}
     .card header,.analysis header{border-bottom:1px solid var(--line);padding:18px;display:flex;align-items:flex-start;gap:12px}.step{font:700 11px ui-monospace;color:var(--accent)}
     .card h3,.analysis h3{margin:0 0 4px;font-size:16px}.card header p,.analysis header p{margin:0;font-size:12px;color:var(--muted)}
-    .response{min-height:280px;padding:22px;white-space:pre-wrap;overflow-wrap:anywhere;font:17px/1.68 Georgia}.analysis{margin-top:16px;background:var(--soft)}.analysis .response{min-height:180px}
+    .response{min-height:280px;padding:22px;overflow-wrap:anywhere;font:17px/1.68 Georgia}.analysis{margin-top:16px;background:var(--soft)}.analysis .response{min-height:180px}
+    .response>*:first-child{margin-top:0}.response>*:last-child{margin-bottom:0}
+    .response p{margin:0 0 1em}.response h1,.response h2,.response h3,.response h4{font-family:Georgia,serif;line-height:1.2;margin:1.4em 0 .55em}
+    .response h1{font-size:1.65em}.response h2{font-size:1.4em;border-bottom:1px solid var(--line);padding-bottom:.3em}.response h3{font-size:1.18em}
+    .response ul,.response ol{margin:.7em 0 1em;padding-left:1.5em}.response li+li{margin-top:.3em}
+    .response blockquote{margin:1em 0;padding:.2em 0 .2em 1em;border-left:3px solid var(--accent);color:#55544e}
+    .response code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;background:var(--soft);padding:.12em .32em;border-radius:3px}
+    .response pre{margin:1em 0;padding:16px;overflow:auto;background:#1f211f;color:#f4f1e8;border-radius:4px;line-height:1.5}
+    .response pre code{background:transparent;padding:0;color:inherit;font-size:.86em}
+    .response table{width:100%;border-collapse:collapse;margin:1em 0;display:block;overflow-x:auto}
+    .response th,.response td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}.response th{background:var(--soft)}
+    .response hr{border:0;border-top:1px solid var(--line);margin:1.5em 0}.response a{color:var(--accent);text-underline-offset:2px}
+    .response strong{font-weight:700}.response img{max-width:100%}
     .constitution{background:var(--panel);border:1px solid var(--line);padding:30px}.intro{max-width:760px;color:var(--muted);line-height:1.6}
     .articles{display:grid;grid-template-columns:1fr 1fr;list-style:none;margin:26px 0 0;padding:0;border-top:1px solid var(--line);border-left:1px solid var(--line)}
     .articles li{padding:16px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}.num{display:block;color:var(--accent);font:700 11px ui-monospace;margin-bottom:8px}.articles strong{display:block;font:600 18px Georgia;margin-bottom:6px}.articles p{margin:0;color:#55544e;font-size:14px;line-height:1.5}
@@ -96,7 +108,23 @@
   <a href="https://github.com/clifer/oi-ui" target="_blank" rel="noreferrer">View code ↗</a>
 </footer>
 
+<script src="/vendor/marked.js"></script>
+<script src="/vendor/purify.js"></script>
 <script>
+marked.setOptions({gfm:true,breaks:false});
+
+function renderMarkdown(target, markdown){
+  const dirty=marked.parse(markdown||"");
+  target.innerHTML=DOMPurify.sanitize(dirty,{USE_PROFILES:{html:true}});
+  target.querySelectorAll("a").forEach(link=>{
+    const href=link.getAttribute("href")||"";
+    if(/^https?:\/\//i.test(href)){
+      link.target="_blank";
+      link.rel="noopener noreferrer";
+    }
+  });
+}
+
 const $ = s => document.querySelector(s);
 const form=$("#form"), q=$("#question"), provider=$("#provider"), providerNote=$("#provider-note"), web=$("#web"), run=$("#run"), error=$("#error"), results=$("#results");
 const baseline=$("#baseline"), guided=$("#guided"), analysis=$("#analysis"), runmeta=$("#runmeta");
@@ -192,7 +220,7 @@ form.addEventListener("submit",async e=>{
   try{
     const r=await fetch("/api/inquire",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question,provider:p.id,allowWeb:web.checked})});
     const data=await r.json();if(!r.ok)throw new Error(data.error||"Inquiry failed.");
-    baseline.textContent=data.baseline.text;guided.textContent=data.guided.text;analysis.textContent=data.analysis.text;
+    renderMarkdown(baseline,data.baseline.text);renderMarkdown(guided,data.guided.text);renderMarkdown(analysis,data.analysis.text);
     runmeta.textContent=data.providerLabel+" · "+data.model+" · reasoning "+data.reasoning+" · "+(data.webSearch?"web on":"web off");
   }catch(e){
     error.textContent=e.message;error.classList.remove("hidden");
