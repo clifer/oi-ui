@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { createServer } from "node:http";
 import { promises as fs } from "node:fs";
 import { extname, join } from "node:path";
