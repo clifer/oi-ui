@@ -10,6 +10,11 @@ const root = fileURLToPath(new URL(".", import.meta.url));
 const publicDir = join(root, "public");
 const port = Number(process.env.PORT || 3000);
 
+const vendorFiles = {
+  "/vendor/marked.js": join(root, "node_modules", "marked", "lib", "marked.umd.js"),
+  "/vendor/purify.js": join(root, "node_modules", "dompurify", "dist", "purify.min.js")
+};
+
 const providerConfig = {
   openai: {
     label: "GPT",
@@ -192,6 +197,15 @@ const mime = {
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
+    if (req.method === "GET" && vendorFiles[url.pathname]) {
+      const content = await fs.readFile(vendorFiles[url.pathname]);
+      res.writeHead(200, {
+        "content-type": "text/javascript; charset=utf-8",
+        "cache-control": "public, max-age=86400"
+      });
+      return res.end(content);
+    }
 
     if (req.method === "GET" && url.pathname === "/api/config") {
       return json(res, 200, { providers: publicProviders() });
