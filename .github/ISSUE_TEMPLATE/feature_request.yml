@@ -1,0 +1,27 @@
+name: Feature request
+description: Propose a focused improvement to the reference app
+title: "[Idea] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What reference-app need does this address?
+      description: Explain the problem before the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: textarea
+    id: inquiry
+    attributes:
+      label: Effect on the experiment
+      description: Could this change the baseline-vs-Constitution comparison or introduce a confound?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
