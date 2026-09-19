@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a reproducible problem in the reference app
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Do not include API keys or other secrets.**
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Select provider/model...
+        2. Ask...
+        3. Observe...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - OpenAI / GPT
+        - xAI / Grok
+        - Google / Gemini
+        - Provider-independent / UI
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Redact credentials and private inquiry content.
