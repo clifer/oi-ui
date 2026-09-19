@@ -2,13 +2,19 @@
 
 A deliberately small reference app for testing what changes when the **Open Inquiry Constitution** is added to a model's instructions.
 
+The app supports three model providers:
+
+- **GPT** through the OpenAI Responses API
+- **Grok** through xAI's OpenAI-compatible Responses API
+- **Gemini** through Google's GenAI Interactions API
+
 ## What it does
 
-One user question produces three model calls:
+Choose a provider, then one user question produces three calls to that same model:
 
-1. **Baseline** — the question goes to the model as-is.
+1. **Baseline** — the question goes to the selected model as-is.
 2. **Constitution-guided** — the same question goes to the same model with the current Open Inquiry Constitution supplied as inquiry-method instructions.
-3. **Comparison** — the model receives the question plus both answers and describes material differences, plausible Constitution-linked effects, tradeoffs, similarities, and what could change the comparison.
+3. **Comparison** — the same model receives the question plus both answers and describes material differences, plausible Constitution-linked effects, tradeoffs, similarities, and what could change the comparison.
 
 The comparison prompt does **not** assume the Constitution-guided response is better. It also warns against treating one stochastic A/B pair as causal proof.
 
@@ -18,22 +24,43 @@ Requires Node.js 20+.
 
 ```bash
 npm install
-export OPENAI_API_KEY="..."
+cp .env.example .env
+# add your keys to .env
 npm start
 ```
 
 Then open <http://localhost:3000>.
 
-Optional environment variables:
+The server reads these provider keys:
+
+```bash
+OPENAI_API_KEY=...
+XAI_API_KEY=...
+GEMINI_API_KEY=...
+```
+
+You can configure the default model and reasoning level for each provider:
 
 ```bash
 OPENAI_MODEL=gpt-5.6-terra
 OPENAI_REASONING_EFFORT=medium
-PORT=3000
-CONSTITUTION_URL=https://raw.githubusercontent.com/clifer/open-inquiry-constitution/main/CONSTITUTION.md
+
+XAI_MODEL=grok-4.6
+XAI_REASONING_EFFORT=medium
+
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_THINKING_LEVEL=medium
 ```
 
-The API key stays server-side.
+Keys stay server-side. The browser only receives whether each provider is configured, plus the public model/reasoning settings.
+
+## Provider behavior
+
+OpenAI and xAI use the Responses API. xAI is called through the official OpenAI JavaScript client with the xAI API base URL.
+
+Gemini uses Google's official `@google/genai` SDK and the Interactions API.
+
+The UI disables providers whose API key is missing.
 
 ## Constitution source
 
@@ -41,7 +68,13 @@ The server fetches the current Constitution from the canonical raw GitHub URL an
 
 ## Web search
 
-The UI includes an optional **Allow web search on both answer passes** control. When enabled, both the baseline and Constitution-guided answers get the same web-search capability. The comparison pass only compares the resulting text.
+The optional **Allow web search on both answer passes** control is provider-aware:
+
+- OpenAI: Responses API `web_search`
+- xAI: Responses API `web_search`
+- Gemini: Interactions API `google_search`
+
+Search is enabled symmetrically for the baseline and Constitution-guided answer passes. The comparison pass does not search the web; it compares the two resulting answers.
 
 ## Design intent
 
