@@ -193,7 +193,7 @@
 </main>
 
 <footer class="shell">
-  <p>A single A/B pair is illustrative, not proof of causation. Model outputs are stochastic; repeat runs can differ.</p>
+  <p>A single A/B pair is illustrative, not proof of causation. Model outputs are stochastic; repeat runs can differ. This independent project is not endorsed by or affiliated with OpenAI, xAI, or Google.</p>
   <a href="https://github.com/clifer/oi-ui" target="_blank" rel="noreferrer">View code ↗</a>
 </footer>
 
@@ -418,13 +418,14 @@ document.querySelectorAll(".example").forEach(btn=>{
 
 function populateModels(preferred){
   const p=selectedProvider();
+  const prior=preferred||model.value;
   model.innerHTML="";
   if(!p){modelNote.textContent="Choose a provider first.";run.disabled=true;return;}
   for(const name of p.models||[p.model]){
     const option=document.createElement("option");
     option.value=name;option.textContent=name;model.append(option);
   }
-  const target=(preferred && (p.models||[]).includes(preferred))?preferred:p.model;
+  const target=(prior && (p.models||[]).includes(prior))?prior:p.model;
   if(target)model.value=target;
   modelNote.textContent=(p.models?.length||1)+" enabled model"+((p.models?.length||1)===1?"":"s")+" · default "+p.model;
 }
