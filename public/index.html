@@ -438,7 +438,7 @@ async function loadProviders(){
     providers=data.providers||[];provider.innerHTML="";
     for(const p of providers){
       const option=document.createElement("option");
-      option.value=p.id;option.textContent=p.label+" — "+p.model+(p.configured?"":" (not configured)");option.disabled=!p.configured;provider.append(option);
+      option.value=p.id;option.textContent=p.label+(p.configured?"":" (not configured)");option.disabled=!p.configured;provider.append(option);
     }
     const first=providers.find(p=>p.configured);if(first)provider.value=first.id;updateProviderNote();
   }catch(e){providerNote.textContent=e.message;run.disabled=true;}
