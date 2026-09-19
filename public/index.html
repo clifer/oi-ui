@@ -28,7 +28,7 @@
     textarea{width:100%;min-height:150px;border:0;outline:0;resize:vertical;background:transparent;font:28px/1.35 Georgia;color:var(--ink)}
     textarea::placeholder{color:#aaa79f}
     .examples{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 18px}.example{border:1px solid var(--line);background:transparent;color:var(--muted);padding:7px 9px;font-size:12px;font-weight:600}.example:hover{border-color:var(--accent);color:var(--accent)}
-    .controls{padding-top:18px;border-top:1px solid var(--line);display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto;gap:18px;align-items:end}
+    .controls{padding-top:18px;border-top:1px solid var(--line);display:grid;grid-template-columns:minmax(190px,1fr) minmax(240px,1.2fr) auto auto auto;gap:18px;align-items:end}
     .provider-wrap label{display:block;font-size:11px;font-weight:800;letter-spacing:.08em;margin-bottom:7px}
     select{width:100%;border:1px solid var(--line);background:var(--panel);padding:11px 12px;font:14px inherit;color:var(--ink)}
     .provider-note{margin:7px 0 0;font-size:11px;color:var(--muted)}
@@ -109,6 +109,11 @@
           <label for="provider">MODEL PROVIDER</label>
           <select id="provider" aria-describedby="provider-note"></select>
           <p id="provider-note" class="provider-note">Loading providers…</p>
+        </div>
+        <div class="provider-wrap">
+          <label for="model">MODEL</label>
+          <select id="model" aria-describedby="model-note"></select>
+          <p id="model-note" class="provider-note">Choose a provider first.</p>
         </div>
         <label class="toggle"><input id="web" type="checkbox"> Allow web search on both answer passes</label>
         <label class="toggle"><input id="save-history" type="checkbox"> Save runs in this browser</label>
@@ -193,7 +198,7 @@
 marked.setOptions({gfm:true,breaks:false});
 
 const $ = s => document.querySelector(s);
-const form=$("#form"), q=$("#question"), provider=$("#provider"), providerNote=$("#provider-note"), web=$("#web"), run=$("#run"), error=$("#error"), results=$("#results");
+const form=$("#form"), q=$("#question"), provider=$("#provider"), providerNote=$("#provider-note"), model=$("#model"), modelNote=$("#model-note"), web=$("#web"), run=$("#run"), error=$("#error"), results=$("#results");
 const baseline=$("#baseline"), guided=$("#guided"), analysis=$("#analysis"), runmeta=$("#runmeta");
 const constitution=$("#constitution"), cmeta=$("#cmeta"), metaGrid=$("#meta-grid");
 const promptBaseline=$("#prompt-baseline"), promptGuided=$("#prompt-guided"), promptAnalysis=$("#prompt-analysis");
@@ -204,6 +209,7 @@ let providers=[], constitutionData=null, currentRun=null;
 const rawText={baseline:"",guided:"",analysis:""};
 
 function selectedProvider(){ return providers.find(p=>p.id===provider.value); }
+function selectedModel(){ return model.value; }
 const HISTORY_DB="open-inquiry-history", HISTORY_STORE="runs", HISTORY_PREF="open-inquiry.save-history";
 saveHistory.checked=localStorage.getItem(HISTORY_PREF)==="1";
 
@@ -294,7 +300,7 @@ async function renderHistory(){
 function loadSavedRun(data){
   currentRun=data;
   q.value=data.question||"";
-  if(providers.some(p=>p.id===data.provider && p.configured)){provider.value=data.provider;updateProviderNote();}
+  if(providers.some(p=>p.id===data.provider && p.configured)){provider.value=data.provider;updateProviderNote(data.model);}
   web.checked=Boolean(data.webSearch);
   rawText.baseline=data.baseline?.text||"";rawText.guided=data.guided?.text||"";rawText.analysis=data.analysis?.text||"";
   showMode("baseline","rendered");showMode("guided","rendered");showMode("analysis","rendered");
@@ -404,11 +410,25 @@ document.querySelectorAll(".example").forEach(btn=>{
   btn.addEventListener("click",()=>{q.value=btn.dataset.question;q.focus();});
 });
 
-function updateProviderNote(){
+function populateModels(preferred){
   const p=selectedProvider();
-  if(!p){providerNote.textContent="No provider selected.";run.disabled=true;return;}
-  providerNote.textContent=p.model+" · reasoning "+p.reasoning+(p.configured?" · ready":" · API key missing");
-  run.disabled=!p.configured;
+  model.innerHTML="";
+  if(!p){modelNote.textContent="Choose a provider first.";run.disabled=true;return;}
+  for(const name of p.models||[p.model]){
+    const option=document.createElement("option");
+    option.value=name;option.textContent=name;model.append(option);
+  }
+  const target=(preferred && (p.models||[]).includes(preferred))?preferred:p.model;
+  if(target)model.value=target;
+  modelNote.textContent=(p.models?.length||1)+" enabled model"+((p.models?.length||1)===1?"":"s")+" · default "+p.model;
+}
+
+function updateProviderNote(preferredModel){
+  const p=selectedProvider();
+  if(!p){providerNote.textContent="No provider selected.";model.innerHTML="";modelNote.textContent="Choose a provider first.";run.disabled=true;return;}
+  providerNote.textContent="reasoning "+p.reasoning+(p.configured?" · ready":" · API key missing");
+  populateModels(preferredModel);
+  run.disabled=!p.configured || !selectedModel();
 }
 
 async function loadProviders(){
@@ -423,7 +443,8 @@ async function loadProviders(){
     const first=providers.find(p=>p.configured);if(first)provider.value=first.id;updateProviderNote();
   }catch(e){providerNote.textContent=e.message;run.disabled=true;}
 }
-provider.addEventListener("change",updateProviderNote);
+provider.addEventListener("change",()=>updateProviderNote());
+model.addEventListener("change",()=>{run.disabled=!selectedProvider()?.configured || !selectedModel();});
 
 function parseConstitution(text){
   const lines=text.split("\n").map(x=>x.trim()),articles=[];
@@ -570,13 +591,13 @@ copyBtn.addEventListener("click",async()=>{
 rerun.addEventListener("click",()=>form.requestSubmit());
 
 async function runInquiry(){
-  const question=q.value.trim(),p=selectedProvider();if(!question||!p||!p.configured)return;
+  const question=q.value.trim(),p=selectedProvider(),m=selectedModel();if(!question||!p||!p.configured||!m)return;
   error.classList.add("hidden");results.classList.remove("hidden");run.disabled=true;rerun.disabled=true;run.textContent="Running…";
-  baseline.textContent="Generating "+p.label+" baseline…";guided.textContent="Applying the Constitution with "+p.label+"…";analysis.textContent="Waiting for both answers…";
+  baseline.textContent="Generating "+m+" baseline…";guided.textContent="Applying the Constitution with "+m+"…";analysis.textContent="Waiting for both answers…";
   baseline.className="response loading";guided.className="response loading";analysis.className="response loading";
   results.scrollIntoView({behavior:"smooth",block:"start"});
   try{
-    const r=await fetch("/api/inquire",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question,provider:p.id,allowWeb:web.checked})});
+    const r=await fetch("/api/inquire",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question,provider:p.id,model:m,allowWeb:web.checked})});
     const data=await r.json();if(!r.ok)throw new Error(data.error||"Inquiry failed.");
     currentRun=data;rawText.baseline=data.baseline.text;rawText.guided=data.guided.text;rawText.analysis=data.analysis.text;
     showMode("baseline","rendered");showMode("guided","rendered");showMode("analysis","rendered");
