@@ -28,7 +28,7 @@
     textarea{width:100%;min-height:150px;border:0;outline:0;resize:vertical;background:transparent;font:28px/1.35 Georgia;color:var(--ink)}
     textarea::placeholder{color:#aaa79f}
     .examples{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 18px}.example{border:1px solid var(--line);background:transparent;color:var(--muted);padding:7px 9px;font-size:12px;font-weight:600}.example:hover{border-color:var(--accent);color:var(--accent)}
-    .controls{padding-top:18px;border-top:1px solid var(--line);display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:18px;align-items:end}
+    .controls{padding-top:18px;border-top:1px solid var(--line);display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto;gap:18px;align-items:end}
     .provider-wrap label{display:block;font-size:11px;font-weight:800;letter-spacing:.08em;margin-bottom:7px}
     select{width:100%;border:1px solid var(--line);background:var(--panel);padding:11px 12px;font:14px inherit;color:var(--ink)}
     .provider-note{margin:7px 0 0;font-size:11px;color:var(--muted)}
@@ -66,6 +66,10 @@
     .meta-item small{display:block;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.08em;margin-bottom:5px}.meta-item code{font-size:11px;word-break:break-all}
     .prompts{margin-top:12px;border:1px solid var(--line);background:var(--panel)}.prompt-grid{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line)}
     .prompt{padding:16px;border-right:1px solid var(--line)}.prompt:last-child{border:0}.prompt h4{margin:0 0 8px;font-size:12px}.prompt pre{margin:0;white-space:pre-wrap;max-height:360px;overflow:auto;font:11px/1.5 ui-monospace;background:#f7f5ef;padding:12px}
+    .history-note{max-width:800px;color:var(--muted);font-size:13px;line-height:1.55}.history-list{display:grid;gap:10px}
+    .history-item{background:var(--panel);border:1px solid var(--line);padding:15px 16px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center}
+    .history-item h3{margin:0 0 5px;font:600 17px/1.3 Georgia;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.history-item p{margin:0;color:var(--muted);font-size:11px}
+    .history-actions{display:flex;gap:7px}.history-actions button{padding:7px 9px;font-size:11px}.empty-history{padding:24px;border:1px dashed var(--line);color:var(--muted);font-size:13px;text-align:center}
     .constitution{background:var(--panel);border:1px solid var(--line);padding:30px}.intro{max-width:760px;color:var(--muted);line-height:1.6}
     .articles{display:grid;grid-template-columns:1fr 1fr;list-style:none;margin:26px 0 0;padding:0;border-top:1px solid var(--line);border-left:1px solid var(--line)}
     .articles li{scroll-margin-top:18px;padding:16px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);transition:background .25s}.articles li.flash{background:var(--accent-soft)}
@@ -107,6 +111,7 @@
           <p id="provider-note" class="provider-note">Loading providers…</p>
         </div>
         <label class="toggle"><input id="web" type="checkbox"> Allow web search on both answer passes</label>
+        <label class="toggle"><input id="save-history" type="checkbox"> Save runs in this browser</label>
         <button id="run" type="submit" disabled>Run inquiry</button>
       </div>
       <p id="error" class="error hidden" role="alert"></p>
@@ -158,6 +163,19 @@
     </details>
   </section>
 
+  <section id="history-section" class="block shell hidden">
+    <div class="heading">
+      <div><p class="eyebrow">LOCAL HISTORY</p><h2>Saved experiments</h2><p id="history-note" class="history-note"></p></div>
+      <div class="actions">
+        <button id="history-export" class="secondary" type="button">Export JSON</button>
+        <button id="history-import-button" class="ghost" type="button">Import JSON</button>
+        <button id="history-clear" class="ghost" type="button">Clear history</button>
+        <input id="history-import" type="file" accept="application/json,.json" hidden>
+      </div>
+    </div>
+    <div id="history-list" class="history-list"></div>
+  </section>
+
   <section id="constitution-section" class="block shell">
     <div class="heading"><div><p class="eyebrow">REFERENCE</p><h2>Open Inquiry Constitution</h2></div><p id="cmeta" class="meta">Loading current version…</p></div>
     <div id="constitution" class="constitution"></div>
@@ -180,10 +198,144 @@ const baseline=$("#baseline"), guided=$("#guided"), analysis=$("#analysis"), run
 const constitution=$("#constitution"), cmeta=$("#cmeta"), metaGrid=$("#meta-grid");
 const promptBaseline=$("#prompt-baseline"), promptGuided=$("#prompt-guided"), promptAnalysis=$("#prompt-analysis");
 const rerun=$("#rerun"), exportBtn=$("#export"), copyBtn=$("#copy");
+const saveHistory=$("#save-history"), historySection=$("#history-section"), historyNote=$("#history-note"), historyList=$("#history-list");
+const historyExport=$("#history-export"), historyImportButton=$("#history-import-button"), historyImport=$("#history-import"), historyClear=$("#history-clear");
 let providers=[], constitutionData=null, currentRun=null;
 const rawText={baseline:"",guided:"",analysis:""};
 
 function selectedProvider(){ return providers.find(p=>p.id===provider.value); }
+const HISTORY_DB="open-inquiry-history", HISTORY_STORE="runs", HISTORY_PREF="open-inquiry.save-history";
+saveHistory.checked=localStorage.getItem(HISTORY_PREF)==="1";
+
+function openHistoryDb(){
+  return new Promise((resolve,reject)=>{
+    const request=indexedDB.open(HISTORY_DB,1);
+    request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains(HISTORY_STORE))db.createObjectStore(HISTORY_STORE,{keyPath:"localId"});};
+    request.onsuccess=()=>resolve(request.result);
+    request.onerror=()=>reject(request.error);
+  });
+}
+
+async function historyRequest(mode,action){
+  const db=await openHistoryDb();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(HISTORY_STORE,mode),store=tx.objectStore(HISTORY_STORE);
+    let request;
+    try{request=action(store);}catch(e){db.close();reject(e);return;}
+    if(request){request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);}
+    else{tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);}
+    tx.oncomplete=()=>db.close();tx.onerror=()=>{db.close();reject(tx.error);};
+  });
+}
+
+function newLocalId(){
+  return globalThis.crypto?.randomUUID?.() || "run-"+Date.now()+"-"+Math.random().toString(16).slice(2);
+}
+
+async function saveRunLocally(data){
+  if(!data.localId)data.localId=newLocalId();
+  await historyRequest("readwrite",store=>store.put(data));
+}
+
+async function getSavedRuns(){
+  const runs=await historyRequest("readonly",store=>store.getAll()) || [];
+  return runs.sort((a,b)=>String(b.runAt||"").localeCompare(String(a.runAt||"")));
+}
+
+async function deleteSavedRun(id){await historyRequest("readwrite",store=>store.delete(id));}
+async function clearSavedRuns(){await historyRequest("readwrite",store=>store.clear());}
+
+function downloadJson(filename,value){
+  const blob=new Blob([JSON.stringify(value,null,2)],{type:"application/json;charset=utf-8"});
+  const url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);
+}
+
+function validImportedRun(run){
+  return run && typeof run==="object" && typeof run.question==="string" &&
+    typeof run.runAt==="string" && run.baseline?.text!=null && run.guided?.text!=null && run.analysis?.text!=null &&
+    run.method && run.constitution;
+}
+
+async function renderHistory(){
+  try{
+    const runs=await getSavedRuns();
+    historySection.classList.toggle("hidden",!saveHistory.checked && runs.length===0);
+    historyExport.disabled=runs.length===0;historyClear.disabled=runs.length===0;
+    historyNote.textContent=saveHistory.checked
+      ? "New completed runs are saved only in this browser. Nothing is sent to a history service."
+      : runs.length
+        ? "Saving is off. Existing browser-local runs remain until you delete them."
+        : "History is off by default. Enable “Save runs in this browser” above to keep completed experiments locally.";
+    historyList.innerHTML="";
+    if(runs.length===0){
+      const empty=document.createElement("div");empty.className="empty-history";empty.textContent="No saved experiments in this browser.";historyList.append(empty);return;
+    }
+    runs.slice(0,50).forEach(item=>{
+      const row=document.createElement("article");row.className="history-item";
+      const info=document.createElement("div"),title=document.createElement("h3"),meta=document.createElement("p");
+      title.textContent=item.question;meta.textContent=[item.providerLabel||item.provider,item.model,new Date(item.runAt).toLocaleString()].filter(Boolean).join(" · ");
+      info.append(title,meta);
+      const actions=document.createElement("div");actions.className="history-actions";
+      const open=document.createElement("button");open.type="button";open.className="secondary";open.textContent="Open";
+      open.addEventListener("click",()=>loadSavedRun(item));
+      const del=document.createElement("button");del.type="button";del.className="ghost";del.textContent="Delete";
+      del.addEventListener("click",async()=>{if(!confirm("Delete this saved experiment from this browser?"))return;await deleteSavedRun(item.localId);await renderHistory();});
+      actions.append(open,del);row.append(info,actions);historyList.append(row);
+    });
+    if(runs.length>50){
+      const more=document.createElement("div");more.className="empty-history";more.textContent="Showing the 50 most recent of "+runs.length+" saved experiments. JSON export includes all runs.";historyList.append(more);
+    }
+  }catch(e){
+    historySection.classList.remove("hidden");historyNote.textContent="Browser history is unavailable: "+e.message;
+  }
+}
+
+function loadSavedRun(data){
+  currentRun=data;
+  q.value=data.question||"";
+  if(providers.some(p=>p.id===data.provider && p.configured)){provider.value=data.provider;updateProviderNote();}
+  web.checked=Boolean(data.webSearch);
+  rawText.baseline=data.baseline?.text||"";rawText.guided=data.guided?.text||"";rawText.analysis=data.analysis?.text||"";
+  showMode("baseline","rendered");showMode("guided","rendered");showMode("analysis","rendered");
+  runmeta.textContent=(data.providerLabel||data.provider)+" · "+data.model+" · "+(data.constitution?.version||"unknown")+" · "+(data.webSearch?"web on":"web off")+" · saved locally";
+  renderMeta(data);results.classList.remove("hidden");results.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+saveHistory.addEventListener("change",()=>{
+  localStorage.setItem(HISTORY_PREF,saveHistory.checked?"1":"0");
+  renderHistory();
+});
+
+historyExport.addEventListener("click",async()=>{
+  const runs=await getSavedRuns();
+  downloadJson("open-inquiry-history-"+new Date().toISOString().slice(0,10)+".json",{
+    format:"open-inquiry-history",version:1,exportedAt:new Date().toISOString(),runs
+  });
+});
+
+historyImportButton.addEventListener("click",()=>historyImport.click());
+historyImport.addEventListener("change",async()=>{
+  const file=historyImport.files?.[0];if(!file)return;
+  try{
+    const data=JSON.parse(await file.text());
+    if(data?.format!=="open-inquiry-history" || data?.version!==1 || !Array.isArray(data.runs))throw new Error("Not an Open Inquiry history export.");
+    let imported=0;
+    for(const run of data.runs){
+      if(!validImportedRun(run))continue;
+      if(!run.localId)run.localId=newLocalId();
+      await saveRunLocally(run);imported++;
+    }
+    await renderHistory();alert("Imported "+imported+" experiment"+(imported===1?"":"s")+".");
+  }catch(e){alert("Could not import history: "+e.message);}
+  finally{historyImport.value="";}
+});
+
+historyClear.addEventListener("click",async()=>{
+  if(!confirm("Delete all saved Open Inquiry experiments from this browser?"))return;
+  await clearSavedRuns();await renderHistory();
+});
+
 
 function renderMarkdown(target, markdown, linkArticles=false){
   const dirty=marked.parse(markdown||"");
@@ -430,6 +582,10 @@ async function runInquiry(){
     showMode("baseline","rendered");showMode("guided","rendered");showMode("analysis","rendered");
     runmeta.textContent=data.providerLabel+" · "+data.model+" · "+data.constitution.version+" · "+(data.webSearch?"web on":"web off");
     renderMeta(data);
+    if(saveHistory.checked){
+      try{await saveRunLocally(data);await renderHistory();}
+      catch(historyError){console.warn("Could not save browser-local history",historyError);}
+    }
   }catch(e){
     error.textContent=e.message;error.classList.remove("hidden");
     baseline.textContent=guided.textContent=analysis.textContent="No result.";
@@ -440,7 +596,7 @@ async function runInquiry(){
 }
 
 form.addEventListener("submit",async e=>{e.preventDefault();await runInquiry();});
-Promise.all([loadProviders(),loadConstitution()]);
+Promise.all([loadProviders(),loadConstitution(),renderHistory()]);
 </script>
 </body>
 </html>
