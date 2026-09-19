@@ -15,22 +15,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
-        continue-on-error: true
       - name: Generate package-lock.json
         run: npm install --package-lock-only --ignore-scripts
-      - name: Commit lockfile when changed
+      - name: Commit lockfile and public-release tag
         run: |
-          if [ -z "$(git status --porcelain -- package-lock.json)" ]; then
-            echo "package-lock.json is already current."
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json
-          git commit -m "Lock npm dependencies"
-          git push
+
+          if [ -n "$(git status --porcelain -- package-lock.json)" ]; then
+            git add package-lock.json
+            git commit -m "Lock npm dependencies"
+          fi
+
+          git pull --rebase origin main
+
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            git push origin main
+          fi
+
+          git fetch --tags origin
+          if ! git rev-parse -q --verify "refs/tags/v0.4.0" >/dev/null; then
+            git tag -a v0.4.0 -m "Open Inquiry UI v0.4.0"
+            git push origin v0.4.0
+          fi
